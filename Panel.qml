@@ -647,7 +647,7 @@ Panel {
         // hero treatment: bar font, bold title, oversized read-out).
         Item {
           width: parent.width
-          implicitHeight: heroLogo.implicitHeight + heroMetaText.implicitHeight + Style.space(4)
+          implicitHeight: Math.max(heroLogo.height, heroTextCol.implicitHeight)
 
           Image {
             id: heroLogoSource
@@ -673,6 +673,7 @@ Panel {
           }
 
           Column {
+            id: heroTextCol
             anchors.left: heroLogo.right
             anchors.leftMargin: Style.space(14)
             anchors.verticalCenter: parent.verticalCenter
