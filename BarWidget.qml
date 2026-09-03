@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Effects
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -70,10 +69,17 @@ BarWidget {
     return u.substring(7, u.lastIndexOf("/") + 1) // strip "file://" prefix, keep trailing "/"
   }
 
-  // ---- OpenRouter logo (official glyph from openrouter.ai brand assets,
-  // fill stripped so MultiEffect colorizes it to the theme foreground).
-  // Falls back to the built-in label when the asset fails to load.
-  readonly property string logoSource: Qt.resolvedUrl("assets/openrouter.svg")
+  // ---- OpenRouter logo. Qt's MultiEffect colorization proved unreliable
+  // for this plugin context (rendered black), so the glyph ships as three
+  // pre-tinted variants of the official mark and the right one is chosen by
+  // theme luminance — white glyph on dark themes, dark on light, red when
+  // any cap/balance is low.
+  readonly property color pillFg: root.panel && root.panel.pillLow ? Color.urgent
+    : (button.bar ? button.bar.barForeground : Color.foreground)
+  readonly property real pillFgLum: 0.299 * pillFg.r + 0.587 * pillFg.g + 0.114 * pillFg.b
+  readonly property string logoSource: Qt.resolvedUrl(
+    root.panel && root.panel.pillLow ? "assets/openrouter-urgent.svg"
+      : (pillFgLum > 0.5 ? "assets/openrouter-ondark.svg" : "assets/openrouter-onlight.svg"))
   readonly property bool logoOk: logoImage.status === Image.Ready
   readonly property real logoSize: Style.bar.iconCanvas
   readonly property real logoGap: 6
@@ -119,6 +125,7 @@ BarWidget {
         width: root.logoSize
         height: root.logoSize
         anchors.verticalCenter: parent.verticalCenter
+        visible: root.logoOk
 
         Image {
           id: logoImage
@@ -127,21 +134,6 @@ BarWidget {
           fillMode: Image.PreserveAspectFit
           sourceSize.width: Math.round(root.logoSize * 4)
           sourceSize.height: Math.round(root.logoSize * 4)
-          asynchronous: true
-          // Hidden layer so MultiEffect can sample it as a texture and
-          // colorize the glyph to the theme foreground (urgent when low) —
-          // same pattern as the system tray's symbolic icons.
-          visible: false
-          layer.enabled: true
-        }
-
-        MultiEffect {
-          anchors.fill: parent
-          source: logoImage
-          visible: root.logoOk
-          colorization: 1.0
-          colorizationColor: root.panel && root.panel.pillLow ? Color.urgent
-            : (button.bar ? button.bar.barForeground : Color.foreground)
         }
       }
 

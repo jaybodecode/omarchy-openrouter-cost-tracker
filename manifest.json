@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "openrouter.bar",
   "name": "OpenRouter Cost Manager",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": "jaybodecode",
   "description": "OpenRouter credit balance and API key manager",
   "kinds": [

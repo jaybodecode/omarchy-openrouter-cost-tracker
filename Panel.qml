@@ -20,6 +20,12 @@ Panel {
   // the panel typography matches the bar it anchors to.
   readonly property string panelFont: barIdentity && barIdentity.bar ? barIdentity.bar.fontFamily : Style.font.family
 
+  // Theme-aware logo variant: the glyph ships pre-tinted (white for dark
+  // themes, near-black for light, red when anything is low).
+  readonly property real fgLum: 0.299 * fg.r + 0.587 * fg.g + 0.114 * fg.b
+  readonly property string logoFile: root.pillLow ? "openrouter-urgent.svg"
+    : (root.fgLum > 0.5 ? "openrouter-ondark.svg" : "openrouter-onlight.svg")
+
   // ---- pill properties (read by BarWidget.qml)
   property real pillRemaining: -1
   property real pillTotal: 0
@@ -31,7 +37,7 @@ Panel {
 
   readonly property string repoUrl: "https://github.com/jaybodecode/omarchy-openrouter-cost-tracker"
   // Keep in sync with "version" in manifest.json
-  readonly property string pluginVersion: "1.2.0"
+  readonly property string pluginVersion: "1.2.1"
 
   readonly property real pillSpend: pillUsage >= 0 ? Math.max(0, pillUsage - spendBase) : -1
   readonly property string pillLabel: pillRemaining < 0 ? ""
@@ -516,31 +522,13 @@ Panel {
         anchors.fill: parent
         spacing: Style.space(10)
 
-      // ---------- header
+      // ---------- header (actions only — identity and balance live in the
+      // hero row below; duplicating them here read twice the same numbers)
       Row {
         width: parent.width
         spacing: Style.space(8)
 
-        Column {
-          width: parent.width - Style.space(76)
-          spacing: Style.space(1)
-
-          Text {
-            text: "OpenRouter Cost Manager"
-            color: root.fg
-            font.family: root.panelFont
-            font.pixelSize: Style.font.body
-            font.bold: true
-          }
-
-          Text {
-            text: root.view === "setup" ? "management key required"
-              : (root.remaining >= 0 ? "$" + root.remaining.toFixed(2) + " available · " + root.agoLabel : "loading…")
-            color: Color.muted
-            font.family: root.panelFont
-            font.pixelSize: Style.font.caption
-          }
-        }
+        Item { width: parent.width - Style.space(76); height: 1 }
 
         PanelActionButton {
           iconText: "󰑐"
@@ -650,32 +638,38 @@ Panel {
           implicitHeight: Math.max(heroLogo.height, heroTextCol.implicitHeight)
 
           Image {
-            id: heroLogoSource
+            id: heroLogo
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             width: Style.font.display * 1.4
             height: width
-            source: root.pluginDir + "assets/openrouter.svg"
+            // Pre-tinted variant chosen by theme luminance (see BarWidget)
+            source: root.pluginDir + "assets/" + root.logoFile
             fillMode: Image.PreserveAspectFit
             sourceSize.width: Math.round(width * 4)
             sourceSize.height: Math.round(height * 4)
-            asynchronous: true
-            visible: false
-            layer.enabled: true
           }
 
-          MultiEffect {
-            id: heroLogo
-            anchors.fill: heroLogoSource
-            source: heroLogoSource
-            colorization: 1.0
-            colorizationColor: root.pillLow ? Color.urgent : root.fg
+          Text {
+            id: heroBalance
+            textFormat: Text.PlainText
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            // Hero read-out: remaining balance, deliberately oversized like
+            // the weather panel's temperature.
+            text: root.pillRemaining >= 0 ? "$" + root.pillRemaining.toFixed(2) : "—"
+            color: root.pillLow ? Color.urgent : root.fg
+            font.family: root.panelFont
+            font.pixelSize: 28
+            font.bold: true
           }
 
           Column {
             id: heroTextCol
             anchors.left: heroLogo.right
             anchors.leftMargin: Style.space(14)
+            anchors.right: heroBalance.left
+            anchors.rightMargin: Style.space(12)
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(2)
 
@@ -692,8 +686,12 @@ Panel {
               textFormat: Text.PlainText
               width: parent.width
               // Uppercase status meta, like the network hero: rotating
-              // phrases while busy, data age otherwise.
-              text: root.busy ? root.busyPhrase : (root.agoLabel !== "" ? root.agoLabel.toUpperCase() : "")
+              // phrases while busy, spend info otherwise (balance and data
+              // age already shown by the hero number and header row).
+              text: root.busy ? root.busyPhrase
+                : (root.pillSpend >= 0
+                  ? "$" + root.pillSpend.toFixed(2) + " SPENT" + (root.spendBaseAt > 0 ? " SINCE RESET" : " ALL-TIME")
+                  : "")
               color: Qt.darker(root.fg, 1.4)
               font.family: root.panelFont
               font.pixelSize: Style.font.caption
@@ -703,18 +701,6 @@ Panel {
             }
           }
 
-          Text {
-            textFormat: Text.PlainText
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            // Hero read-out: remaining balance, deliberately oversized like
-            // the weather panel's temperature.
-            text: root.pillRemaining >= 0 ? "$" + root.pillRemaining.toFixed(2) : "—"
-            color: root.pillLow ? Color.urgent : root.fg
-            font.family: root.panelFont
-            font.pixelSize: 28
-            font.bold: true
-          }
         }
 
         // One-time "star the repo" card. Appears a few seconds after the
