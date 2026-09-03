@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -15,6 +16,9 @@ Panel {
   property var hostWidget: null
   readonly property var barIdentity: hostWidget || root
   readonly property color fg: barIdentity && barIdentity.bar ? barIdentity.bar.barForeground : Color.foreground
+  // Stock panels (network/weather) render text with the bar's font family so
+  // the panel typography matches the bar it anchors to.
+  readonly property string panelFont: barIdentity && barIdentity.bar ? barIdentity.bar.fontFamily : Style.font.family
 
   // ---- pill properties (read by BarWidget.qml)
   property real pillRemaining: -1
@@ -524,7 +528,7 @@ Panel {
           Text {
             text: "OpenRouter Cost Manager"
             color: root.fg
-            font.family: Style.font.family
+            font.family: root.panelFont
             font.pixelSize: Style.font.body
             font.bold: true
           }
@@ -533,7 +537,7 @@ Panel {
             text: root.view === "setup" ? "management key required"
               : (root.remaining >= 0 ? "$" + root.remaining.toFixed(2) + " available · " + root.agoLabel : "loading…")
             color: Color.muted
-            font.family: Style.font.family
+            font.family: root.panelFont
             font.pixelSize: Style.font.caption
           }
         }
@@ -576,7 +580,7 @@ Panel {
           width: parent.width - Style.space(16)
           text: root.banner
           color: root.bannerError ? Color.urgent : Color.accent
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.caption
           wrapMode: Text.WrapAnywhere
         }
@@ -588,7 +592,7 @@ Panel {
         visible: root.busy
         text: root.busyText !== "" && root.busyText !== "Refreshing…" ? root.busyText : root.busyPhrase
         color: Color.muted
-        font.family: Style.font.family
+        font.family: root.panelFont
         font.pixelSize: Style.font.caption
       }
 
@@ -602,7 +606,7 @@ Panel {
           width: parent.width
           text: "Paste an OpenRouter management API key.\nCreate one at openrouter.ai/settings/management-keys — it is stored in your keyring, never on disk."
           color: Color.muted
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.caption
           wrapMode: Text.WrapAnywhere
         }
@@ -639,6 +643,79 @@ Panel {
         spacing: Style.space(6)
         visible: root.view === "list"
 
+        // ---- Hero: logo · title · big remaining balance (network/weather
+        // hero treatment: bar font, bold title, oversized read-out).
+        Item {
+          width: parent.width
+          implicitHeight: heroLogo.implicitHeight + heroMetaText.implicitHeight + Style.space(4)
+
+          Image {
+            id: heroLogoSource
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.font.display * 1.4
+            height: width
+            source: root.pluginDir + "assets/openrouter.svg"
+            fillMode: Image.PreserveAspectFit
+            sourceSize.width: Math.round(width * 4)
+            sourceSize.height: Math.round(height * 4)
+            asynchronous: true
+            visible: false
+            layer.enabled: true
+          }
+
+          MultiEffect {
+            id: heroLogo
+            anchors.fill: heroLogoSource
+            source: heroLogoSource
+            colorization: 1.0
+            colorizationColor: root.pillLow ? Color.urgent : root.fg
+          }
+
+          Column {
+            anchors.left: heroLogo.right
+            anchors.leftMargin: Style.space(14)
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(2)
+
+            Text {
+              textFormat: Text.PlainText
+              text: "OpenRouter"
+              color: root.fg
+              font.family: root.panelFont
+              font.pixelSize: Style.font.title
+              font.bold: true
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              // Uppercase status meta, like the network hero: rotating
+              // phrases while busy, data age otherwise.
+              text: root.busy ? root.busyPhrase : (root.agoLabel !== "" ? root.agoLabel.toUpperCase() : "")
+              color: Qt.darker(root.fg, 1.4)
+              font.family: root.panelFont
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              font.letterSpacing: 1.2
+              elide: Text.ElideRight
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            // Hero read-out: remaining balance, deliberately oversized like
+            // the weather panel's temperature.
+            text: root.pillRemaining >= 0 ? "$" + root.pillRemaining.toFixed(2) : "—"
+            color: root.pillLow ? Color.urgent : root.fg
+            font.family: root.panelFont
+            font.pixelSize: 28
+            font.bold: true
+          }
+        }
+
         // One-time "star the repo" card. Appears a few seconds after the
         // panel opens, and disappears forever once clicked/dismissed
         // (star_prompt_done persists in config.json via the helper).
@@ -673,7 +750,7 @@ Panel {
                 width: parent.width - Style.space(24)
                 text: "Find OpenRouter Cost Manager useful?"
                 color: root.fg
-                font.family: Style.font.family
+                font.family: root.panelFont
                 font.pixelSize: Style.font.body
                 anchors.verticalCenter: parent.verticalCenter
               }
@@ -689,7 +766,7 @@ Panel {
               width: parent.width
               text: "Star it on GitHub to support development ♥"
               color: Color.muted
-              font.family: Style.font.family
+              font.family: root.panelFont
               font.pixelSize: Style.font.caption
             }
 
@@ -731,7 +808,7 @@ Panel {
           text: "Open API Keys management in Browser"
           color: keysLinkHover.containsMouse ? Color.accent : Color.muted
           font.underline: true
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.caption
           elide: Text.ElideMiddle
 
@@ -773,7 +850,7 @@ Panel {
           visible: root.keys.length === 0
           text: "No API keys yet. Create one to get started."
           color: Color.muted
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.caption
         }
       }
@@ -798,7 +875,7 @@ Panel {
           text: "Credit limit, $ (0 = unlimited)"
           color: Color.muted
           font.pixelSize: Style.font.caption
-          font.family: Style.font.family
+          font.family: root.panelFont
         }
 
         Row {
@@ -816,7 +893,7 @@ Panel {
           text: "Limit resets"
           color: Color.muted
           font.pixelSize: Style.font.caption
-          font.family: Style.font.family
+          font.family: root.panelFont
         }
 
         Dropdown {
@@ -861,7 +938,7 @@ Panel {
           text: root.editingKey ? root.editingKey.name : ""
           color: root.fg
           font.pixelSize: Style.font.body
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.bold: true
         }
 
@@ -877,7 +954,7 @@ Panel {
           text: "Credit limit, $ (0 = unlimited)"
           color: Color.muted
           font.pixelSize: Style.font.caption
-          font.family: Style.font.family
+          font.family: root.panelFont
         }
 
         Row {
@@ -893,7 +970,7 @@ Panel {
             text: "spent $" + (root.editingKey ? Number(root.editingKey.usage).toFixed(2) : "0.00")
             color: Color.muted
             font.pixelSize: Style.font.caption
-            font.family: Style.font.family
+            font.family: root.panelFont
             anchors.verticalCenter: parent.verticalCenter
           }
         }
@@ -902,7 +979,7 @@ Panel {
           text: "Limit resets"
           color: Color.muted
           font.pixelSize: Style.font.caption
-          font.family: Style.font.family
+          font.family: root.panelFont
         }
 
         Dropdown {
@@ -952,7 +1029,7 @@ Panel {
           text: root.editingKey ? "This permanently deletes “" + root.editingKey.name + "”. Apps using it will stop working."
             : ""
           color: root.fg
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.caption
           wrapMode: Text.WrapAnywhere
         }
@@ -962,7 +1039,7 @@ Panel {
           text: root.editingKey ? "Type “" + root.editingKey.name + "” to confirm:"
             : ""
           color: Color.muted
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.caption
         }
 
@@ -1004,7 +1081,7 @@ Panel {
           width: parent.width
           text: "Copy it now — it cannot be shown again."
           color: Color.urgent
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.caption
           wrapMode: Text.WrapAnywhere
         }
@@ -1021,7 +1098,7 @@ Panel {
             width: parent.width - Style.space(12)
             text: root.revealKeyText
             color: root.fg
-            font.family: Style.font.family
+            font.family: root.panelFont
             font.pixelSize: Style.font.caption
             elide: Text.ElideMiddle
             wrapMode: Text.NoWrap
@@ -1062,14 +1139,14 @@ Panel {
             Text {
               text: "Show spend since reset in bar"
               color: root.fg
-              font.family: Style.font.family
+              font.family: root.panelFont
               font.pixelSize: Style.font.body
             }
 
             Text {
               text: "When off, the pill shows just the OR logo — no amounts are shown in the bar at all."
               color: Color.muted
-              font.family: Style.font.family
+              font.family: root.panelFont
               font.pixelSize: Style.font.caption
               wrapMode: Text.WrapAnywhere
               width: parent.width
@@ -1091,7 +1168,7 @@ Panel {
             ? "Counting since " + Qt.formatDateTime(new Date(root.spendBaseAt * 1000), "ddd MMM d, hh:mm") + " (" + root.fmtDuration(root.spendBaseAt) + " ago) · $" + Math.max(0, (Number(root.status && root.status.total_usage) || 0) - root.spendBase).toFixed(2) + " since reset"
             : "Counting all-time spend (no reset yet)"
           color: Color.muted
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.caption
           wrapMode: Text.WrapAnywhere
           width: parent.width
@@ -1100,7 +1177,7 @@ Panel {
         Text {
           text: "Resetting is local only — nothing changes on your OpenRouter account. Total account spend: $" + (Number(root.status && root.status.total_usage) || 0).toFixed(2)
           color: Color.muted
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.caption
           wrapMode: Text.WrapAnywhere
           width: parent.width
@@ -1117,7 +1194,7 @@ Panel {
         Text {
           text: "Logging out removes the management key from this machine's system keyring (vault) — it is not kept anywhere on disk. Your keys on OpenRouter are untouched; you can log back in anytime."
           color: Color.muted
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.caption
           wrapMode: Text.WrapAnywhere
           width: parent.width
@@ -1149,7 +1226,7 @@ Panel {
           Text {
             text: "OpenRouter Cost Manager v" + root.pluginVersion
             color: root.fg
-            font.family: Style.font.family
+            font.family: root.panelFont
             font.pixelSize: Style.font.caption
           }
 
@@ -1157,7 +1234,7 @@ Panel {
             width: parent.width
             text: "OpenRouter logo © OpenRouter, used to identify the service. This plugin is unofficial and not affiliated with OpenRouter."
             color: Color.muted
-            font.family: Style.font.family
+            font.family: root.panelFont
             font.pixelSize: Style.font.caption
             wrapMode: Text.WrapAnywhere
           }
@@ -1185,7 +1262,7 @@ Panel {
         width: parent.width
         text: "Loading…"
         color: Color.muted
-        font.family: Style.font.family
+        font.family: root.panelFont
         font.pixelSize: Style.font.caption
       }
       }
@@ -1323,7 +1400,7 @@ Panel {
         Text {
           text: rowRoot.pinned ? "󰐃" : "󰋗"
           color: rowRoot.pinned ? Color.accent : Color.muted
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.iconSmall
           anchors.verticalCenter: parent.verticalCenter
 
@@ -1341,7 +1418,7 @@ Panel {
           width: parent.width - Style.space(62)
           text: rowRoot.keyData.name || ""
           color: rowRoot.keyData.disabled ? Color.muted : root.fg
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.body
           elide: Text.ElideRight
           anchors.verticalCenter: parent.verticalCenter
@@ -1370,7 +1447,7 @@ Panel {
               ? " / $" + rowRoot.limitVal.toFixed(0) + " (" + rowRoot.pctUsed + "% used)"
               : " spent")
           color: rowRoot.nearLimit ? Color.urgent : Color.muted
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.caption
         }
 
@@ -1379,7 +1456,7 @@ Panel {
             : (rowRoot.keyData.limit_reset && rowRoot.keyData.limit_reset !== "never" ? "· resets " + rowRoot.keyData.limit_reset
               : (rowRoot.lifetimeCap ? "· capped at $" + rowRoot.limitVal.toFixed(0) : ""))
           color: Color.muted
-          font.family: Style.font.family
+          font.family: root.panelFont
           font.pixelSize: Style.font.caption
         }
       }

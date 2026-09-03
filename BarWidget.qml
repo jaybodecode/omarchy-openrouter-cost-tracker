@@ -86,16 +86,19 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    // Width driver only (labelVisible false keeps it unpainted): the amount
-    // text, so long values size the pill exactly as they did before.
-    text: root.panel ? root.panel.pillLabel : ""
+    // Hover glance (peek the other metric) + width-driving amount, exactly
+    // the old WidgetButton.text behavior — now painted by contentRow.
+    text: {
+      if (!root.panel) return ""
+      if (button.tooltipHovered && root.panel.pillGlance !== "") return root.panel.pillGlance
+      return root.panel.pillLabel
+    }
     labelVisible: false
     hasVisualContent: true
     horizontalMargin: 8.75 + (root.panel && root.panel.pillLabel !== "" ? (root.logoSize + root.logoGap) / 2 : root.logoSize / 2)
     verticalPadding: 8.75
-    // The panel is the detail view: shared bar tooltip suppressed, themed
-    // PanelToolTip below instead (same pattern as weather/network widgets).
-    tooltipText: ""
+    // Multi-line content styled by the bar's own themed tooltip overlay.
+    tooltipText: root.panel ? root.panel.pillTooltip : "OpenRouter"
 
     onPressed: function(b) {
       if (!root.bar) return
@@ -122,13 +125,16 @@ BarWidget {
           anchors.fill: parent
           source: root.logoSource
           fillMode: Image.PreserveAspectFit
-          sourceSize: Qt.size(root.logoSize * 4, root.logoSize * 4)
+          sourceSize.width: Math.round(root.logoSize * 4)
+          sourceSize.height: Math.round(root.logoSize * 4)
           asynchronous: true
+          // Hidden layer so MultiEffect can sample it as a texture and
+          // colorize the glyph to the theme foreground (urgent when low) —
+          // same pattern as the system tray's symbolic icons.
           visible: false
+          layer.enabled: true
         }
 
-        // Colorize the glyph to the theme foreground (urgent when low),
-        // mirroring how the system tray tints symbolic icons.
         MultiEffect {
           anchors.fill: parent
           source: logoImage
@@ -154,14 +160,6 @@ BarWidget {
           ColorAnimation { duration: 160 }
         }
       }
-    }
-
-    PanelToolTip {
-      visible: button.tooltipHovered && root.panel && root.panel.pillTooltip !== ""
-      text: root.panel ? root.panel.pillTooltip : ""
-      // Top bar → show below the pill; any other position → above it.
-      x: (parent.width - implicitWidth) / 2
-      y: button.bar && button.bar.position === "top" ? parent.height + 6 : -implicitHeight - 6
     }
   }
 }
