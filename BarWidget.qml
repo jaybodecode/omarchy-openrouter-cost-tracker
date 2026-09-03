@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "assets/openrouter-logo.js" as ORLogo
 
 BarWidget {
   id: root
@@ -52,53 +53,31 @@ BarWidget {
   // the helper writes on every fetch.
   readonly property var panel: panelLoader.item
 
-  Loader {
-    id: panelLoader
-    active: true
-    source: Qt.resolvedUrl("Panel.qml")
-    visible: false
-    onLoaded: {
-      root.injectPanel()
-      Qt.callLater(root.injectPanel)
-    }
-  }
-
   // Plugin directory (self-contained: helper scripts ship in the folder).
   readonly property string pluginDir: {
     var u = Qt.resolvedUrl("BarWidget.qml").toString()
     return u.substring(7, u.lastIndexOf("/") + 1) // strip "file://" prefix, keep trailing "/"
   }
 
-  // ---- OpenRouter logo. Qt's MultiEffect colorization proved unreliable
-  // for this plugin context (rendered black), so the glyph ships as three
-  // pre-tinted variants of the official mark and the right one is chosen by
-  // theme luminance — white glyph on dark themes, dark on light, red when
-  // any cap/balance is low.
+  // ---- OpenRouter logo, tinted at runtime to the exact color text widgets
+  // use (barForeground / urgent) — identical rendering to the weather pill.
   readonly property color pillFg: root.panel && root.panel.pillLow ? Color.urgent
     : (button.bar ? button.bar.barForeground : Color.foreground)
-  readonly property real pillFgLum: 0.299 * pillFg.r + 0.587 * pillFg.g + 0.114 * pillFg.b
-  readonly property string logoSource: Qt.resolvedUrl(
-    root.panel && root.panel.pillLow ? "assets/openrouter-urgent.svg"
-      : (pillFgLum > 0.5 ? "assets/openrouter-ondark.svg" : "assets/openrouter-onlight.svg"))
+  readonly property string logoSource: ORLogo.uri(root.pillFg.toString())
   readonly property bool logoOk: logoImage.status === Image.Ready
   readonly property real logoSize: Style.bar.iconCanvas
   readonly property real logoGap: 6
 
   // WidgetButton (not BarIconButton): auto-sizes to the text like the clock
   // pill; BarIconButton is a fixed square slot that long amounts overflow.
-  // The built-in label is hidden; contentRow renders logo + amount and the
-  // extra horizontal margin reserves room for the logo on the left.
+  // The built-in label is hidden; contentRow renders logo + amount.
   WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    // Hover glance (peek the other metric) + width-driving amount, exactly
-    // the old WidgetButton.text behavior — now painted by contentRow.
-    text: {
-      if (!root.panel) return ""
-      if (button.tooltipHovered && root.panel.pillGlance !== "") return root.panel.pillGlance
-      return root.panel.pillLabel
-    }
+    // Width stays constant on hover — the amount never swaps content, so
+    // the pill no longer shifts right under the cursor.
+    text: root.panel ? root.panel.pillLabel : ""
     labelVisible: false
     hasVisualContent: true
     horizontalMargin: 8.75 + (root.panel && root.panel.pillLabel !== "" ? (root.logoSize + root.logoGap) / 2 : root.logoSize / 2)
@@ -113,8 +92,7 @@ BarWidget {
       else root.togglePanel()
     }
 
-    foreground: root.panel && root.panel.pillLow ? Color.urgent
-      : (button.bar ? button.bar.barForeground : Color.foreground)
+    foreground: root.pillFg
 
     Row {
       id: contentRow
@@ -140,8 +118,7 @@ BarWidget {
       Text {
         visible: root.panel && root.panel.pillLabel !== ""
         text: root.panel ? root.panel.pillLabel : ""
-        color: root.panel && root.panel.pillLow ? Color.urgent
-          : (button.bar ? button.bar.barForeground : Color.foreground)
+        color: root.pillFg
         font.family: button.fontFamily
         font.pixelSize: button.fontSize
         renderType: Text.NativeRendering

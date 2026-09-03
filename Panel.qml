@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "assets/openrouter-logo.js" as ORLogo
 
 Panel {
   id: root
@@ -20,12 +21,6 @@ Panel {
   // the panel typography matches the bar it anchors to.
   readonly property string panelFont: barIdentity && barIdentity.bar ? barIdentity.bar.fontFamily : Style.font.family
 
-  // Theme-aware logo variant: the glyph ships pre-tinted (white for dark
-  // themes, near-black for light, red when anything is low).
-  readonly property real fgLum: 0.299 * fg.r + 0.587 * fg.g + 0.114 * fg.b
-  readonly property string logoFile: root.pillLow ? "openrouter-urgent.svg"
-    : (root.fgLum > 0.5 ? "openrouter-ondark.svg" : "openrouter-onlight.svg")
-
   // ---- pill properties (read by BarWidget.qml)
   property real pillRemaining: -1
   property real pillTotal: 0
@@ -37,19 +32,11 @@ Panel {
 
   readonly property string repoUrl: "https://github.com/jaybodecode/omarchy-openrouter-cost-tracker"
   // Keep in sync with "version" in manifest.json
-  readonly property string pluginVersion: "1.2.1"
+  readonly property string pluginVersion: "1.2.2"
 
   readonly property real pillSpend: pillUsage >= 0 ? Math.max(0, pillUsage - spendBase) : -1
   readonly property string pillLabel: pillRemaining < 0 ? ""
     : (spendShow && pillSpend >= 0 ? "$" + pillSpend.toFixed(2) : "")
-  // Hover glance reveals the other metric regardless of spendShow — the
-  // toggle only controls the persistent pill text, never the hover peek.
-  readonly property string pillGlance: {
-    agoTick
-    if (pillRemaining < 0) return ""
-    if (spendShow) return "$" + pillRemaining.toFixed(2) + " left"
-    return "$" + (pillSpend >= 0 ? pillSpend.toFixed(2) : (Number(pillUsage) || 0).toFixed(2)) + " spent"
-  }
   readonly property bool pillLow: (pillRemaining >= 0 && pillTotal > 0 && pillRemaining < pillTotal * 0.1)
     || anyKeyNearLimit
   // Full themed tooltip content; shown via PanelToolTip on the pill button.
@@ -58,12 +45,11 @@ Panel {
     if (pillRemaining < 0) return "OpenRouter — open to configure"
     var t = "OpenRouter balance: $" + pillRemaining.toFixed(2)
     if (pillSpend >= 0) {
-      t += "\nSpent " + (spendBaseAt > 0
-        ? "$" + pillSpend.toFixed(2) + " in the last " + fmtDuration(spendBaseAt)
-          + " (since " + Qt.formatDateTime(new Date(spendBaseAt * 1000), "ddd MMM d, hh:mm") + ")"
-        : "all-time: $" + pillSpend.toFixed(2))
+      t += "\nSpent $" + pillSpend.toFixed(2) + (spendBaseAt > 0 ? " since reset" : " all-time")
+      if (spendBaseAt > 0)
+        t += "\nSince " + Qt.formatDateTime(new Date(spendBaseAt * 1000), "ddd MMM d, hh:mm")
+          + " (" + fmtDuration(spendBaseAt) + " ago)"
     }
-    t += "\n" + agoLabel
     return t
   }
 
@@ -528,7 +514,32 @@ Panel {
         width: parent.width
         spacing: Style.space(8)
 
-        Item { width: parent.width - Style.space(76); height: 1 }
+        Text {
+          width: parent.width - Style.space(100)
+          visible: root.view === "list"
+          text: "Open API keys management in browser"
+          color: keysLinkHover.containsMouse ? Color.accent : Color.muted
+          font.underline: true
+          font.family: root.panelFont
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+          anchors.verticalCenter: parent.verticalCenter
+
+          MouseArea {
+            id: keysLinkHover
+            anchors.fill: parent
+            anchors.margins: -Style.space(4)
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: Quickshell.execDetached(["xdg-open", "https://openrouter.ai/workspaces/default/keys"])
+          }
+        }
+
+        PanelActionButton {
+          iconText: ""
+          tooltipText: "GitHub repository"
+          onClicked: Quickshell.execDetached(["xdg-open", root.repoUrl])
+        }
 
         PanelActionButton {
           iconText: "󰑐"
@@ -570,7 +581,7 @@ Panel {
           color: root.bannerError ? Color.urgent : Color.accent
           font.family: root.panelFont
           font.pixelSize: Style.font.caption
-          wrapMode: Text.WrapAnywhere
+          wrapMode: Text.Wrap
         }
       }
 
@@ -596,7 +607,7 @@ Panel {
           color: Color.muted
           font.family: root.panelFont
           font.pixelSize: Style.font.caption
-          wrapMode: Text.WrapAnywhere
+          wrapMode: Text.Wrap
         }
 
         TextField {
@@ -643,8 +654,8 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             width: Style.font.display * 1.4
             height: width
-            // Pre-tinted variant chosen by theme luminance (see BarWidget)
-            source: root.pluginDir + "assets/" + root.logoFile
+            // Exact theme color, same rendering path as the bar pill
+            source: ORLogo.uri((root.pillLow ? Color.urgent : root.fg).toString())
             fillMode: Image.PreserveAspectFit
             sourceSize.width: Math.round(width * 4)
             sourceSize.height: Math.round(height * 4)
@@ -786,26 +797,6 @@ Panel {
           delegate: KeyRow {
             width: parent.width
             keyData: modelData
-          }
-        }
-
-        Text {
-          visible: root.showAllToggle || root.pinnedKeys.length === 0
-          width: parent.width
-          text: "Open API Keys management in Browser"
-          color: keysLinkHover.containsMouse ? Color.accent : Color.muted
-          font.underline: true
-          font.family: root.panelFont
-          font.pixelSize: Style.font.caption
-          elide: Text.ElideMiddle
-
-          MouseArea {
-            id: keysLinkHover
-            anchors.fill: parent
-            anchors.margins: -Style.space(4)
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: Quickshell.execDetached(["xdg-open", "https://openrouter.ai/workspaces/default/keys"])
           }
         }
 
@@ -1018,7 +1009,7 @@ Panel {
           color: root.fg
           font.family: root.panelFont
           font.pixelSize: Style.font.caption
-          wrapMode: Text.WrapAnywhere
+          wrapMode: Text.Wrap
         }
 
         Text {
@@ -1070,7 +1061,7 @@ Panel {
           color: Color.urgent
           font.family: root.panelFont
           font.pixelSize: Style.font.caption
-          wrapMode: Text.WrapAnywhere
+          wrapMode: Text.Wrap
         }
 
         Rectangle {
@@ -1124,18 +1115,18 @@ Panel {
             spacing: Style.space(2)
 
             Text {
-              text: "Show spend since reset in bar"
+              text: "Show spend in bar"
               color: root.fg
               font.family: root.panelFont
               font.pixelSize: Style.font.body
             }
 
             Text {
-              text: "When off, the pill shows just the OR logo — no amounts are shown in the bar at all."
+              text: "When off, the pill shows only the OpenRouter logo."
               color: Color.muted
               font.family: root.panelFont
               font.pixelSize: Style.font.caption
-              wrapMode: Text.WrapAnywhere
+              wrapMode: Text.Wrap
               width: parent.width
             }
           }
@@ -1152,26 +1143,26 @@ Panel {
 
         Text {
           text: root.spendBaseAt > 0
-            ? "Counting since " + Qt.formatDateTime(new Date(root.spendBaseAt * 1000), "ddd MMM d, hh:mm") + " (" + root.fmtDuration(root.spendBaseAt) + " ago) · $" + Math.max(0, (Number(root.status && root.status.total_usage) || 0) - root.spendBase).toFixed(2) + " since reset"
+            ? "Counting since " + Qt.formatDateTime(new Date(root.spendBaseAt * 1000), "ddd MMM d, hh:mm") + " (" + root.fmtDuration(root.spendBaseAt) + " ago) — $" + Math.max(0, (Number(root.status && root.status.total_usage) || 0) - root.spendBase).toFixed(2) + " spent"
             : "Counting all-time spend (no reset yet)"
           color: Color.muted
           font.family: root.panelFont
           font.pixelSize: Style.font.caption
-          wrapMode: Text.WrapAnywhere
+          wrapMode: Text.Wrap
           width: parent.width
         }
 
         Text {
-          text: "Resetting is local only — nothing changes on your OpenRouter account. Total account spend: $" + (Number(root.status && root.status.total_usage) || 0).toFixed(2)
+          text: "Resetting is local only — your OpenRouter account is untouched. Total account spend: $" + (Number(root.status && root.status.total_usage) || 0).toFixed(2)
           color: Color.muted
           font.family: root.panelFont
           font.pixelSize: Style.font.caption
-          wrapMode: Text.WrapAnywhere
+          wrapMode: Text.Wrap
           width: parent.width
         }
 
         Button {
-          text: "Reset spend counter to zero"
+          text: "Reset spend counter"
           enabled: !root.busy && root.status && root.status.has_key !== false
           onClicked: root.resetSpend()
         }
@@ -1179,11 +1170,11 @@ Panel {
         PanelSeparator {}
 
         Text {
-          text: "Logging out removes the management key from this machine's system keyring (vault) — it is not kept anywhere on disk. Your keys on OpenRouter are untouched; you can log back in anytime."
+          text: "Log out removes the management key from this machine's keyring (vault). Your keys on OpenRouter are untouched — you can log back in anytime."
           color: Color.muted
           font.family: root.panelFont
           font.pixelSize: Style.font.caption
-          wrapMode: Text.WrapAnywhere
+          wrapMode: Text.Wrap
           width: parent.width
         }
 
@@ -1223,7 +1214,7 @@ Panel {
             color: Color.muted
             font.family: root.panelFont
             font.pixelSize: Style.font.caption
-            wrapMode: Text.WrapAnywhere
+            wrapMode: Text.Wrap
           }
 
           Row {
@@ -1235,8 +1226,8 @@ Panel {
             }
 
             Button {
-              text: root.starPromptDone ? "Starred ♥" : "Star this project"
-              enabled: !root.starPromptDone
+              visible: !root.starPromptDone
+              text: "Star this project"
               onClicked: root.dismissStarPrompt(true)
             }
           }
