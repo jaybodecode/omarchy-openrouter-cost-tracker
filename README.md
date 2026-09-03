@@ -42,6 +42,18 @@ Create a management key at [openrouter.ai/keys](https://openrouter.ai/keys) and 
 
 Your API key is stored locally in `~/.config/openrouter-bar/config.json` and is only sent to `openrouter.ai` over HTTPS. The plugin requests no other network access.
 
+## Remove
+
+```bash
+omarchy plugin remove openrouter.bar
+```
+
+Optionally delete leftover settings and stored keys:
+
+```bash
+rm -rf ~/.config/openrouter-bar
+```
+
 ## License
 
 [MIT](LICENSE)
