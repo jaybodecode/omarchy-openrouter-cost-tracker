@@ -89,15 +89,26 @@ Panel {
   readonly property var pinnedKeys: keys.filter(function(k) { return pins.indexOf(k.hash) !== -1 })
   readonly property var otherKeys: keys.filter(function(k) { return pins.indexOf(k.hash) === -1 })
   readonly property real remaining: status ? (Number(status.total_credits) || 0) - (Number(status.total_usage) || 0) : -1
-  // True when any FIXED-cap key (limit_reset never — the only keys whose
-  // usage/limit ratio is meaningful, since API usage is lifetime spend)
-  // is at >= 90% of its limit. Drives the red pill together with low balance.
+  // True when any capped key is at >= 90% of its limit. Fixed caps
+  // (limit_reset never) compare lifetime `usage`; period caps compare the
+  // API's per-period field (usage_daily/usage_weekly/usage_monthly). Drives
+  // the red pill together with low balance.
+  function keyUsageRatio(k) {
+    var lim = Number(k.limit) || 0
+    if (lim <= 0) return 0
+    var reset = k.limit_reset
+    var used
+    if (reset === "daily") used = Number(k.usage_daily)
+    else if (reset === "weekly") used = Number(k.usage_weekly)
+    else if (reset === "monthly") used = Number(k.usage_monthly)
+    else used = Number(k.usage) // fixed cap: lifetime usage is the measure
+    if (isNaN(used)) used = 0
+    return used / lim
+  }
   readonly property bool anyKeyNearLimit: {
     var ks = status && status.keys ? status.keys : []
     for (var i = 0; i < ks.length; i++) {
-      var lim = Number(ks[i].limit) || 0
-      var reset = ks[i].limit_reset
-      if (lim > 0 && (!reset || reset === "never") && (Number(ks[i].usage) || 0) / lim >= 0.9) return true
+      if (keyUsageRatio(ks[i]) >= 0.9) return true
     }
     return false
   }
@@ -180,10 +191,17 @@ Panel {
     startHelper(argv, cb)
   }
 
+  // Plugin directory (scripts ship inside the plugin folder, so the whole
+  // plugin is self-contained after `omarchy plugin add <git-url>`).
+  readonly property string pluginDir: {
+    var u = Qt.resolvedUrl("Panel.qml").toString()
+    return u.substring(7, u.lastIndexOf("/") + 1) // strip "file://" prefix, keep trailing "/"
+  }
+
   function startHelper(argv, cb) {
     helperBusy = true
     helperCallback = cb || null
-    helperProc.command = [Quickshell.env("HOME") + "/.local/bin/openrouter-bar-api"].concat(argv)
+    helperProc.command = [pluginDir + "openrouter-bar-api"].concat(argv)
     helperProc.running = true
   }
 
@@ -1066,15 +1084,23 @@ Panel {
     property var keyData: ({})
     property bool pinned: root.pins.indexOf(keyData.hash) !== -1
     readonly property real limitVal: Number(keyData.limit) || 0
-    readonly property real usageVal: Number(keyData.usage) || 0
-    // The API's `usage` is LIFETIME spend, so a usage/limit ratio is only
-    // meaningful for fixed caps (limit_reset never). For weekly/daily/monthly
-    // keys the provider computes period usage server-side and never exposes
-    // it — those rows show the cap label but no percent and never go red.
+    // The usage that matters for this key: lifetime `usage` for fixed caps,
+    // the API's per-period field (usage_daily/usage_weekly/usage_monthly)
+    // for keys whose limit resets. Falls back to lifetime usage if the
+    // period field is missing.
     readonly property bool periodCap: limitVal > 0 && keyData.limit_reset && keyData.limit_reset !== "never"
     readonly property bool lifetimeCap: limitVal > 0 && !periodCap
-    readonly property int pctUsed: lifetimeCap ? Math.round(usageVal / limitVal * 100) : -1
-    readonly property real pct: lifetimeCap ? Math.min(1, usageVal / limitVal) : 0
+    readonly property real periodUsageVal: {
+      var r = keyData.limit_reset
+      if (r === "daily") return Number(keyData.usage_daily) || 0
+      if (r === "weekly") return Number(keyData.usage_weekly) || 0
+      if (r === "monthly") return Number(keyData.usage_monthly) || 0
+      return Number(keyData.usage) || 0
+    }
+    readonly property real usageVal: Number(keyData.usage) || 0
+    readonly property real cappedUsageVal: periodCap ? periodUsageVal : usageVal
+    readonly property int pctUsed: limitVal > 0 ? Math.round(cappedUsageVal / limitVal * 100) : -1
+    readonly property real pct: limitVal > 0 ? Math.min(1, cappedUsageVal / limitVal) : 0
     readonly property bool nearLimit: pctUsed >= 90
 
     color: Util.alpha(Color.foreground, 0.05)
@@ -1139,10 +1165,10 @@ Panel {
         spacing: Style.space(4)
 
         Text {
-          text: "$" + rowRoot.usageVal.toFixed(2)
-            + (rowRoot.lifetimeCap
+          text: "$" + rowRoot.cappedUsageVal.toFixed(2)
+            + (rowRoot.limitVal > 0
               ? " / $" + rowRoot.limitVal.toFixed(0) + " (" + rowRoot.pctUsed + "% used)"
-              : (rowRoot.periodCap ? " / $" + rowRoot.limitVal.toFixed(0) : " spent"))
+              : " spent")
           color: rowRoot.nearLimit ? Color.urgent : Color.muted
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
@@ -1163,7 +1189,7 @@ Panel {
         height: Style.space(4)
         radius: Style.space(2)
         color: Util.alpha(Color.foreground, 0.08)
-        visible: rowRoot.lifetimeCap
+        visible: rowRoot.limitVal > 0
 
         Rectangle {
           width: parent.width * rowRoot.pct

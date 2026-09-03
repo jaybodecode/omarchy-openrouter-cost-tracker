@@ -1,0 +1,8 @@
+#!/bin/bash
+# One-line OpenRouter balance for notifications / right-click on the bar pill.
+CACHE="$HOME/.local/state/openrouter-bar/cache.json"
+if [[ -r "$CACHE" ]]; then
+  remaining=$(jq -r --argjson u "$(jq -r '.total_usage // 0' "$CACHE")" '.total_credits - $u' "$CACHE" 2>/dev/null)
+  [[ -n "$remaining" && "$remaining" != "null" ]] && printf 'OpenRouter: $%.2f remaining\n' "$remaining" && exit 0
+fi
+echo "OpenRouter: no data yet (open the panel to configure)"

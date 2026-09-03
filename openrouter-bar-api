@@ -1,0 +1,403 @@
+#!/usr/bin/env python3
+"""OpenRouter management API helper for the omarchy-shell bar plugin.
+
+Single-shot CLI; the QML panel invokes it via Quickshell.Io.Process and
+parses JSON from stdout. All output is a single JSON object.
+
+Exit codes: 0 ok | 2 auth error | 3 network error | 4 not configured | 5 usage
+
+Commands:
+  status [--force]        credits + keys, served from a 30s cache
+  refresh                 force fetch, print status
+  set-key <KEY>           validate and store the management key in the keyring
+  key-status              {"has_key": bool}
+  create <name> [limit] [reset]   returns plaintext key once
+  update <hash> [--name N] [--limit L|none] [--reset R] [--disabled 0|1]
+  delete <hash>
+"""
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from urllib import request as urlrequest
+from urllib import error as urlerror
+
+BASE_URL = "https://openrouter.ai/api/v1"
+KEYRING_ATTR = ("openrouter", "management-key")
+CONFIG_DIR = Path.home() / ".config" / "openrouter-bar"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+CACHE_FILE = Path.home() / ".local/state/openrouter-bar/cache.json"
+CACHE_TTL = 30.0
+RESETS = ("never", "daily", "weekly", "monthly")
+
+
+class UserError(Exception):
+    pass
+
+
+class AuthError(Exception):
+    pass
+
+
+class NetError(Exception):
+    pass
+
+
+# ---------------------------------------------------------------- storage
+
+def load_json(path, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def save_json(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", dir=str(path.parent), prefix=path.name + ".", delete=False,
+    )
+    try:
+        os.chmod(tmp.name, 0o600 if path == CONFIG_FILE else 0o644)
+        with tmp:
+            json.dump(data, tmp, indent=1)
+        os.replace(tmp.name, path)
+    except Exception:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+        raise
+
+
+def config():
+    cfg = load_json(CONFIG_FILE, {})
+    if not isinstance(cfg, dict):
+        cfg = {}
+    cfg.setdefault("pinned_hashes", [])
+    cfg.setdefault("spend_show", True)
+    if cfg.get("spend_base") is not None:
+        try:
+            cfg["spend_base"] = float(cfg["spend_base"])
+        except (TypeError, ValueError):
+            cfg["spend_base"] = None
+    return cfg
+
+
+def save_config(cfg):
+    save_json(CONFIG_FILE, cfg)
+
+
+def spend_fields():
+    """Spend-counter config as consumed by the panel."""
+    cfg = config()
+    return {
+        "spend_show": bool(cfg.get("spend_show", True)),
+        "spend_base": cfg.get("spend_base"),
+        "spend_base_at": cfg.get("spend_base_at") or 0,
+    }
+
+
+# ---------------------------------------------------------------- keyring
+
+def get_key():
+    env = os.environ.get("OPENROUTER_MANAGEMENT_KEY")
+    if env:
+        return env.strip()
+    try:
+        out = subprocess.run(
+            ["secret-tool", "lookup", KEYRING_ATTR[0], KEYRING_ATTR[1]],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    key = out.stdout.strip()
+    if "\n" in key:
+        # Self-heal a legacy corrupted entry: keep the actual key line.
+        lines = [ln.strip() for ln in key.splitlines()]
+        cands = [ln for ln in lines if ln.startswith("sk-or-")]
+        key = cands[-1] if cands else lines[-1]
+    return key or None
+
+
+def store_key(key):
+    # secret-tool reads the RAW secret from stdin — no framing, one attribute
+    # pair per two CLI args. (A previous "secret\\nattr\\nattr\\nkey" payload
+    # framing was wrong and stored the whole blob as the secret.)
+    r = subprocess.run(
+        ["secret-tool", "store", "--label=OpenRouter management key",
+         KEYRING_ATTR[0], KEYRING_ATTR[1]],
+        input=key, capture_output=True, text=True, timeout=30,
+    )
+    if r.returncode != 0:
+        raise UserError("keyring store failed: " + r.stderr.strip())
+
+
+# ---------------------------------------------------------------- api
+
+def api(method, path, key, body=None):
+    req = urlrequest.Request(BASE_URL + path, method=method)
+    req.add_header("Authorization", "Bearer " + key)
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode()
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urlrequest.urlopen(req, data=data, timeout=15) as resp:
+            raw = resp.read().decode()
+    except urlerror.HTTPError as e:
+        if e.code in (401, 403):
+            raise AuthError(f"HTTP {e.code}")
+        try:
+            detail = json.loads(e.read().decode()).get("error", {})
+            msg = detail.get("message", "") if isinstance(detail, dict) else str(detail)
+        except Exception:
+            msg = ""
+        raise UserError(f"HTTP {e.code}: {msg}".strip())
+    except (urlerror.URLError, TimeoutError, OSError) as e:
+        raise NetError(str(e))
+    if not raw:
+        return {}
+    return json.loads(raw)
+
+
+def fetch_status(key):
+    credits = api("GET", "/credits", key)
+    keys = []
+    offset = 0
+    while True:
+        page = api("GET", f"/keys?offset={offset}", key)
+        keys.extend(page.get("data", []))
+        if not page.get("data") or not page.get("has_more", False):
+            break
+        offset += len(page.get("data", []))
+    now = time.time()
+    return {
+        "fetched_at": now,
+        "total_credits": credits.get("data", {}).get("total_credits", 0),
+        "total_usage": credits.get("data", {}).get("total_usage", 0),
+        "keys": [clean_key(k) for k in keys],
+    }
+
+
+def clean_key(k):
+    def num(x):
+        try:
+            return round(float(x), 4)
+        except (TypeError, ValueError):
+            return 0.0
+    return {
+        "hash": k.get("hash", ""),
+        "name": k.get("name", "unnamed"),
+        "usage": num(k.get("usage")),
+        "usage_daily": num(k.get("usage_daily")),
+        "usage_weekly": num(k.get("usage_weekly")),
+        "usage_monthly": num(k.get("usage_monthly")),
+        "limit": k.get("limit"),
+        "limit_reset": k.get("limit_reset") or "never",
+        "disabled": bool(k.get("disabled")),
+        "created": k.get("created", ""),
+    }
+
+
+# ---------------------------------------------------------------- commands
+
+def cmd_status(key, force=False):
+    cached = load_json(CACHE_FILE, None)
+    fresh = isinstance(cached, dict) and (time.time() - cached.get("fetched_at", 0)) < CACHE_TTL
+    if cached and (fresh or key is None):
+        cached["stale"] = not fresh
+        cached["cached"] = True
+        cached["has_key"] = key is not None
+        cached.update(spend_fields())
+        return cached
+    if key is None:
+        return {"has_key": False}
+    status = fetch_status(key)
+    save_json(CACHE_FILE, status)
+    status["cached"] = False
+    status["stale"] = False
+    status["has_key"] = True
+    status.update(spend_fields())
+    return status
+
+
+def cmd_set_key(key_value):
+    key_value = key_value.strip()
+    if not key_value.startswith("sk-or-"):
+        raise UserError("not an OpenRouter key (expected sk-or-...)")
+    api("GET", "/keys", key_value)  # validate
+    store_key(key_value)
+    return {"ok": True}
+
+
+def cmd_create(key, name, limit, reset):
+    body = {"name": name}
+    if limit is not None:
+        body["limit"] = limit
+        if reset != "never":
+            body["limit_reset"] = reset
+    created = api("POST", "/keys", key, body)
+    data = created.get("data", {})
+    plaintext = data.get("key")
+    h = data.get("hash")
+    if h:
+        cfg = config()
+        if h not in cfg["pinned_hashes"]:
+            cfg["pinned_hashes"].append(h)
+            save_config(cfg)
+    return {"ok": True, "hash": h, "key": plaintext}
+
+
+def cmd_update(key, h, name, limit, reset, disabled):
+    body = {}
+    if name is not None:
+        body["name"] = name
+    if limit is not None:
+        body["limit"] = limit
+        body["limit_reset"] = reset
+    if disabled is not None:
+        body["disabled"] = disabled
+    api("PATCH", f"/keys/{h}", key, body)
+    return {"ok": True, "hash": h}
+
+
+def cmd_delete(key, h):
+    api("DELETE", f"/keys/{h}", key)
+    cfg = config()
+    cfg["pinned_hashes"] = [x for x in cfg["pinned_hashes"] if x != h]
+    save_config(cfg)
+    return {"ok": True, "hash": h}
+
+
+def cmd_pins(hashes):
+    cfg = config()
+    cfg["pinned_hashes"] = [h.strip() for h in hashes.split(",") if h.strip()]
+    save_config(cfg)
+    return {"ok": True, "pinned_hashes": cfg["pinned_hashes"]}
+
+
+def cmd_spend_reset(current_total):
+    cfg = config()
+    cfg["spend_base"] = float(current_total)
+    cfg["spend_base_at"] = time.time()
+    save_config(cfg)
+    return {"ok": True, "spend_base": cfg["spend_base"], "spend_base_at": cfg["spend_base_at"]}
+
+
+def cmd_spend_show(flag):
+    cfg = config()
+    cfg["spend_show"] = bool(int(flag))
+    save_config(cfg)
+    return {"ok": True, "spend_show": cfg["spend_show"]}
+
+
+def cmd_logout():
+    subprocess.run(
+        ["secret-tool", "clear", KEYRING_ATTR[0], KEYRING_ATTR[1]],
+        capture_output=True, timeout=30,
+    )
+    try:
+        os.unlink(CACHE_FILE)
+    except FileNotFoundError:
+        pass
+    return {"ok": True}
+
+
+def main():
+    argv = sys.argv[1:]
+    cmd = argv[0] if argv else "status"
+
+    if cmd == "key-status":
+        print(json.dumps({"has_key": get_key() is not None}))
+        return 0
+
+    if cmd == "set-key":
+        if len(argv) < 2:
+            raise UserError("set-key requires the key argument")
+        try:
+            print(json.dumps(cmd_set_key(argv[1])))
+        except AuthError:
+            print(json.dumps({"error": "auth", "message": "Management key rejected (401/403)"}))
+            return 2
+        except NetError as e:
+            print(json.dumps({"error": "network", "message": str(e)}))
+            return 3
+        return 0
+
+    key = get_key()
+    if key is None:
+        print(json.dumps({"has_key": False}))
+        return 4
+
+    try:
+        if cmd in ("status", "refresh"):
+            print(json.dumps(cmd_status(key, force=cmd == "refresh")))
+        elif cmd == "create":
+            name = argv[1] if len(argv) > 1 else "new key"
+            limit = float(argv[2]) if len(argv) > 2 and argv[2] != "-" else None
+            reset = argv[3] if len(argv) > 3 and argv[3] in RESETS else "never"
+            print(json.dumps(cmd_create(key, name, limit, reset)))
+        elif cmd == "update":
+            h = argv[1]
+            opts = {"name": None, "limit": None, "reset": None, "disabled": None}
+            i = 2
+            while i < len(argv):
+                flag = argv[i].lstrip("-")
+                if flag not in opts:
+                    raise UserError(f"unknown option --{flag}")
+                opts[flag] = argv[i + 1]
+                i += 2
+            limit = float(opts["limit"]) if opts["limit"] not in (None, "none") else None
+            disabled = bool(opts["disabled"] == "1") if opts["disabled"] is not None else None
+            reset = opts["reset"] if opts["reset"] in RESETS else "never"
+            print(json.dumps(cmd_update(key, h, opts["name"], limit, reset, disabled)))
+        elif cmd == "delete":
+            if len(argv) < 2:
+                raise UserError("delete requires a key hash")
+            print(json.dumps(cmd_delete(key, argv[1])))
+        elif cmd == "pins":
+            if len(argv) < 2:
+                raise UserError("pins requires a comma-separated hash list")
+            print(json.dumps(cmd_pins(argv[1])))
+        elif cmd == "spend-reset":
+            if len(argv) < 2:
+                raise UserError("spend-reset requires the current total usage")
+            print(json.dumps(cmd_spend_reset(argv[1])))
+        elif cmd == "spend-show":
+            if len(argv) < 2 or argv[1] not in ("0", "1"):
+                raise UserError("spend-show requires 0 or 1")
+            print(json.dumps(cmd_spend_show(argv[1])))
+        elif cmd == "logout":
+            print(json.dumps(cmd_logout()))
+        else:
+            raise UserError(f"unknown command: {cmd}")
+        return 0
+    except AuthError:
+        print(json.dumps({"error": "auth", "message": "Management key rejected (401/403)"}))
+        return 2
+    except NetError as e:
+        # Serve stale cache on network failure so the UI degrades gracefully.
+        cached = load_json(CACHE_FILE, None)
+        if cached:
+            cached["stale"] = True
+            cached["error"] = str(e)
+            print(json.dumps(cached))
+            return 0
+        print(json.dumps({"error": "network", "message": str(e)}))
+        return 3
+    except UserError as e:
+        print(json.dumps({"error": "request", "message": str(e)}))
+        return 5
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        sys.exit(0)

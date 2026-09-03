@@ -85,12 +85,18 @@ BarWidget {
     verticalPadding: 8.75
     tooltipText: root.panel ? root.panel.pillTooltip : "OpenRouter"
 
-    onPressed: function(b) {
-      if (!root.bar) return
-      if (b === Qt.RightButton) root.bar.run("omarchy-notification-send \"$(omarchy-openrouter-status)\"")
-      else if (b === Qt.MiddleButton) root.refresh()
-      else root.togglePanel()
-    }
+  // Plugin directory (self-contained: helper scripts ship in the folder).
+  readonly property string pluginDir: {
+    var u = Qt.resolvedUrl("BarWidget.qml").toString()
+    return u.substring(7, u.lastIndexOf("/") + 1) // strip "file://" prefix, keep trailing "/"
+  }
+
+  onPressed: function(b) {
+    if (!root.bar) return
+    if (b === Qt.RightButton) root.bar.run("omarchy-notification-send \"$(" + root.pluginDir + "omarchy-openrouter-status)\"")
+    else if (b === Qt.MiddleButton) root.refresh()
+    else root.togglePanel()
+  }
 
     foreground: root.panel && root.panel.pillLow ? Color.urgent
       : (button.bar ? button.bar.barForeground : Color.foreground)
