@@ -32,7 +32,7 @@ Panel {
 
   readonly property string repoUrl: "https://github.com/jaybodecode/omarchy-openrouter-cost-tracker"
   // Keep in sync with "version" in manifest.json
-  readonly property string pluginVersion: "1.2.2"
+  readonly property string pluginVersion: "1.2.3"
 
   readonly property real pillSpend: pillUsage >= 0 ? Math.max(0, pillUsage - spendBase) : -1
   readonly property string pillLabel: pillRemaining < 0 ? ""
@@ -661,25 +661,54 @@ Panel {
             sourceSize.height: Math.round(height * 4)
           }
 
-          Text {
-            id: heroBalance
-            textFormat: Text.PlainText
+          // Hero read-out: remaining credits, oversized and accent-colored
+          // like the weather panel's temperature, with a small unit label.
+          Column {
+            id: heroBalanceCol
+            anchors.right: heroReset.left
+            anchors.rightMargin: Style.space(4)
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 0
+
+            Text {
+              textFormat: Text.PlainText
+              width: Math.max(parent.width, 1)
+              horizontalAlignment: Text.AlignRight
+              text: root.pillRemaining >= 0 ? "$" + root.pillRemaining.toFixed(2) : "—"
+              color: root.pillLow ? Color.urgent : Color.accent
+              font.family: root.panelFont
+              font.pixelSize: 40
+              font.bold: true
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              horizontalAlignment: Text.AlignRight
+              text: "CREDIT"
+              color: Qt.darker(root.fg, 1.4)
+              font.family: root.panelFont
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              font.letterSpacing: 1.2
+            }
+          }
+
+          PanelActionButton {
+            id: heroReset
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            // Hero read-out: remaining balance, deliberately oversized like
-            // the weather panel's temperature.
-            text: root.pillRemaining >= 0 ? "$" + root.pillRemaining.toFixed(2) : "—"
-            color: root.pillLow ? Color.urgent : root.fg
-            font.family: root.panelFont
-            font.pixelSize: 28
-            font.bold: true
+            iconText: "󰑓"
+            tooltipText: "Reset spend counter"
+            enabled: !root.busy && root.spendBaseAt > 0 && root.status && root.status.has_key !== false
+            onClicked: root.resetSpend()
           }
 
           Column {
             id: heroTextCol
             anchors.left: heroLogo.right
             anchors.leftMargin: Style.space(14)
-            anchors.right: heroBalance.left
+            anchors.right: heroBalanceCol.left
             anchors.rightMargin: Style.space(12)
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(2)
@@ -701,7 +730,7 @@ Panel {
               // age already shown by the hero number and header row).
               text: root.busy ? root.busyPhrase
                 : (root.pillSpend >= 0
-                  ? "$" + root.pillSpend.toFixed(2) + " SPENT" + (root.spendBaseAt > 0 ? " SINCE RESET" : " ALL-TIME")
+                  ? "$" + root.pillSpend.toFixed(2) + " SPENT · " + (root.spendBaseAt > 0 ? root.fmtDuration(root.spendBaseAt).toUpperCase() : "ALL-TIME")
                   : "")
               color: Qt.darker(root.fg, 1.4)
               font.family: root.panelFont
