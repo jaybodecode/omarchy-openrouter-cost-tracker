@@ -22,7 +22,8 @@ API key management.
 
 Capabilities:
 
-- Live credit balance pill with hover glance and red low-balance warning
+- Official OpenRouter logo pill (theme-tinted via MultiEffect, red when low)
+- Live credit balance with hover peek and themed multi-line tooltip
 - Per-API-key usage totals with progress bar and % used; supports fixed caps
   and daily/weekly/monthly period caps (uses OpenRouter's usage_daily /
   usage_weekly / usage_monthly fields, matching their UTC reset schedule)
@@ -30,6 +31,9 @@ Capabilities:
 - Red ≥ 90%-of-cap warning in both the panel and the bar pill
 - Local "true cost" spend counter with user-resettable baseline
 - Pins for favorite keys; right-click balance notification; middle-click refresh
+- Auto-refresh ~5s after shell startup; no polling while idle
+- Rotating status phrases while refreshing (network-panel style)
+- About section with version + repo link; one-time dismissible star prompt
 
 Security / permissions:
 
@@ -40,6 +44,8 @@ Security / permissions:
   (Python/bash) shipped inside the plugin folder — self-contained after
   `omarchy plugin add`
 - External dependencies (all stock on Omarchy): python3, jq, libsecret
+- Bundled OpenRouter logo from openrouter.ai brand assets, used nominatively
+  to identify the service; unofficial plugin, not affiliated with OpenRouter
 
 Install and removal instructions are in the README (including keyring cleanup
 on removal).

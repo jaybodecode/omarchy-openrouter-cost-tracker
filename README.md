@@ -8,11 +8,13 @@ An [Omarchy](https://omarchy.org/) bar widget for tracking and managing your Ope
 
 **Status bar pill**
 
-- Live OpenRouter credit balance ($ remaining), refreshed on a 30s cache
-- Hover glance — flips between remaining balance and "spent" view
+- Official OpenRouter logo, tinted to your theme (turns red when running low)
+- Live OpenRouter credit balance ($ spent since reset), refreshed on a 30s cache
+- Hover peek — flips to remaining balance regardless of display mode; themed multi-line tooltip with balance, spend, and data age
 - Turns **red when you're running low** on balance or any key nears its cap (≥ 90%)
 - Right-click for a desktop notification with your balance; middle-click to force refresh
 - Optional "true cost" mode: reset the local spend counter anytime and the pill shows spend since that point (e.g. "this month so far")
+- Refreshes automatically ~5s after shell startup — no need to open the panel for fresh numbers
 
 **Per-key usage monitor** (popup panel)
 
@@ -26,6 +28,12 @@ An [Omarchy](https://omarchy.org/) bar widget for tracking and managing your Ope
 - Create new keys with a credit limit and reset schedule (never / daily / weekly / monthly)
 - Edit caps and reset schedules on existing keys, enable/disable, delete
 - One-time plaintext key reveal for newly created keys
+
+**Panel niceties**
+
+- Rotating "vibe-coding" status phrases while refreshing (in the spirit of the network panel's "Handling packets")
+- Settings → About: version info and a link to this repository
+- One-time prompt to star the repo (click it or dismiss, and it never comes back)
 
 ## Install
 
@@ -60,6 +68,10 @@ On first open, the panel asks for an **OpenRouter Management key** (create one a
 - The management key is stored in the system keyring only; it is sent exclusively to `openrouter.ai` over HTTPS
 - No telemetry, no other network access, no elevated permissions
 - All code is QML plus two small local helper scripts (Python/bash) that ship inside the plugin folder
+
+## Trademark notice
+
+The OpenRouter name and logo are trademarks of OpenRouter. They are used in this plugin solely to identify the service it connects to; this plugin is unofficial and not affiliated with or endorsed by OpenRouter.
 
 ## Remove
 

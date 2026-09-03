@@ -23,22 +23,29 @@ Panel {
   property bool spendShow: true
   property real spendBase: 0
   property real spendBaseAt: 0
+  property bool starPromptDone: false
+
+  readonly property string repoUrl: "https://github.com/jaybodecode/omarchy-openrouter-cost-tracker"
+  // Keep in sync with "version" in manifest.json
+  readonly property string pluginVersion: "1.2.0"
 
   readonly property real pillSpend: pillUsage >= 0 ? Math.max(0, pillUsage - spendBase) : -1
-  readonly property string pillLabel: pillRemaining < 0 ? "OR"
-    : (spendShow && pillSpend >= 0 ? "$" + pillSpend.toFixed(2) : "OR")
-  // Hover glance: only in spend mode (logo mode shows no amounts at all).
+  readonly property string pillLabel: pillRemaining < 0 ? ""
+    : (spendShow && pillSpend >= 0 ? "$" + pillSpend.toFixed(2) : "")
+  // Hover glance reveals the other metric regardless of spendShow — the
+  // toggle only controls the persistent pill text, never the hover peek.
   readonly property string pillGlance: {
     agoTick
-    if (pillRemaining < 0 || !spendShow) return ""
-    return "$" + pillRemaining.toFixed(2) + " left"
+    if (pillRemaining < 0) return ""
+    if (spendShow) return "$" + pillRemaining.toFixed(2) + " left"
+    return "$" + (pillSpend >= 0 ? pillSpend.toFixed(2) : (Number(pillUsage) || 0).toFixed(2)) + " spent"
   }
   readonly property bool pillLow: (pillRemaining >= 0 && pillTotal > 0 && pillRemaining < pillTotal * 0.1)
     || anyKeyNearLimit
+  // Full themed tooltip content; shown via PanelToolTip on the pill button.
   readonly property string pillTooltip: {
     agoTick
-    if (pillRemaining < 0) return "OpenRouter: open to configure"
-    if (!spendShow) return "OpenRouter"
+    if (pillRemaining < 0) return "OpenRouter — open to configure"
     var t = "OpenRouter balance: $" + pillRemaining.toFixed(2)
     if (pillSpend >= 0) {
       t += "\nSpent " + (spendBaseAt > 0
@@ -46,6 +53,7 @@ Panel {
           + " (since " + Qt.formatDateTime(new Date(spendBaseAt * 1000), "ddd MMM d, hh:mm") + ")"
         : "all-time: $" + pillSpend.toFixed(2))
     }
+    t += "\n" + agoLabel
     return t
   }
 
@@ -136,6 +144,20 @@ Panel {
   }
 
   // ------------------------------------------------------------- lifecycle
+  // True until the first background fetch of the session completes; gates
+  // the one-time star notification so manual refreshes never trigger it.
+  property bool firstFetchOfSession: true
+
+  // Delayed startup fetch: give the desktop a few seconds to settle after
+  // login, then quietly refresh the pill data (helper serves its 30s cache
+  // if we are early). No periodic polling — the panel refreshes on open.
+  Timer {
+    interval: 5000
+    running: true
+    repeat: false
+    onTriggered: root.refresh(false)
+  }
+
   function open() {
     openedFromHotkey = false
     root.controller.show()
@@ -234,16 +256,33 @@ Panel {
   }
 
   function applyStatus(out) {
+    var firstData = !status
     status = out
     if (out.fetched_at) fetchedAt = Number(out.fetched_at)
     spendShow = out.spend_show !== false
     spendBase = typeof out.spend_base === "number" ? out.spend_base : 0
     spendBaseAt = Number(out.spend_base_at) || 0
+    starPromptDone = out.star_prompt_done === true
     banner = out.stale ? "Stale data (offline?)" : ""
     bannerError = !!out.stale
     if (out.has_key === false) { view = "setup"; focusField(setupKeyField, true); return }
     if (view === "loading") view = "list"
     agoTick++
+    // One-time desktop nudge to star the repo, after the first successful
+    // fetch of the session (startup path only — never after manual refresh).
+    // Clicking it opens the repo and permanently dismisses the prompt.
+    if (firstFetchOfSession) {
+      firstFetchOfSession = false
+      if (!starPromptDone) {
+        var helper = pluginDir + "openrouter-bar-api"
+        Quickshell.execDetached(["omarchy-notification-send",
+          "--app-name", "OpenRouter Cost Manager", "-u", "low",
+          "OpenRouter Cost Manager",
+          "Find it useful? Click to star the repo ♥",
+          "--exec", "bash", "-c",
+          helper + " star-done >/dev/null 2>&1; xdg-open " + repoUrl])
+      }
+    }
   }
 
   function mutate(argv, cb) {
@@ -296,6 +335,15 @@ Panel {
     callHelper(["pins", next.join(",")], function(out) {
       if (out && out.ok) root.pins = out.pinned_hashes
     })
+  }
+
+  // Star prompt dismissal. Opening the repo counts as fulfilled — GitHub
+  // cannot verify who starred, so click-to-open hides the card forever.
+  function dismissStarPrompt(openRepo) {
+    listColumn.starPeek = false
+    starPromptDone = true
+    callHelper(["star-done"], null)
+    if (openRepo) Quickshell.execDetached(["xdg-open", repoUrl])
   }
 
   // ------------------------------------------------------------- views
@@ -495,12 +543,53 @@ Panel {
       }
 
       Text {
+        id: busyPhraseText
         width: parent.width
         visible: root.busy
-        text: root.busyText !== "" ? root.busyText : "Working…"
+        text: root.busyText !== "" && root.busyText !== "Refreshing…" ? root.busyText : root.busyPhrase
         color: Color.muted
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
+      }
+
+      // Rotating vibe-coding phrases while busy — same mechanism as the
+      // network panel's "Handling packets" hero meta (fade out, swap, in).
+      property int busyPhraseIndex: 0
+      readonly property var busyPhrases: [
+        "Counting tokens",
+        "Pricing prompts",
+        "Weighing context",
+        "Feeding the model",
+        "Burning credits",
+        "Rounding up receipts",
+        "Negotiating with vendors",
+        "Sipping context windows",
+        "Auditing inference",
+        "Trimming hallucinations",
+      ]
+      readonly property string busyPhrase: busyPhrases[busyPhraseIndex % busyPhrases.length].toUpperCase()
+
+      Timer {
+        id: busyPhraseTimer
+        interval: 2800
+        running: root.busy
+        repeat: true
+        onTriggered: busyPhraseSwap.restart()
+      }
+
+      SequentialAnimation {
+        id: busyPhraseSwap
+        PropertyAnimation {
+          target: busyPhraseText; property: "opacity"
+          to: 0.0; duration: 180; easing.type: Easing.OutQuad
+        }
+        ScriptAction {
+          script: root.busyPhraseIndex = (root.busyPhraseIndex + 1) % root.busyPhrases.length
+        }
+        PropertyAnimation {
+          target: busyPhraseText; property: "opacity"
+          to: 1.0; duration: 260; easing.type: Easing.InQuad
+        }
       }
 
       // ---------- SETUP (first run: paste management key)
@@ -545,9 +634,81 @@ Panel {
 
       // ---------- LIST
       Column {
+        id: listColumn
         width: parent.width
         spacing: Style.space(6)
         visible: root.view === "list"
+
+        // One-time "star the repo" card. Appears a few seconds after the
+        // panel opens, and disappears forever once clicked/dismissed
+        // (star_prompt_done persists in config.json via the helper).
+        property bool starPeek: false
+        Timer {
+          interval: 5000
+          running: root.opened && !root.starPromptDone
+          repeat: false
+          onTriggered: listColumn.starPeek = true
+        }
+
+        Rectangle {
+          width: parent.width
+          visible: root.view === "list" && listColumn.starPeek && !root.starPromptDone
+          color: Util.alpha(Color.accent, 0.12)
+          radius: Style.cornerRadius
+          height: starColumn.implicitHeight + Style.space(12)
+
+          Column {
+            id: starColumn
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: Style.space(6)
+            spacing: Style.space(4)
+
+            Row {
+              width: parent.width
+              spacing: Style.space(4)
+
+              Text {
+                width: parent.width - Style.space(24)
+                text: "Find OpenRouter Cost Manager useful?"
+                color: root.fg
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              PanelActionButton {
+                iconText: "󰅂"
+                tooltipText: "Dismiss"
+                onClicked: root.dismissStarPrompt(false)
+              }
+            }
+
+            Text {
+              width: parent.width
+              text: "Star it on GitHub to support development ♥"
+              color: Color.muted
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+
+            Row {
+              spacing: Style.space(8)
+
+              Button {
+                text: "Star on GitHub"
+                onClicked: root.dismissStarPrompt(true)
+              }
+
+              Button {
+                text: "Not now"
+                bordered: true
+                onClicked: root.dismissStarPrompt(false)
+              }
+            }
+          }
+        }
 
         PanelSectionHeader {
           width: parent.width
@@ -977,11 +1138,50 @@ Panel {
             onClicked: root.goList()
           }
         }
+
+        PanelSeparator {}
+
+        // ---------- about
+        Column {
+          width: parent.width
+          spacing: Style.space(4)
+
+          Text {
+            text: "OpenRouter Cost Manager v" + root.pluginVersion
+            color: root.fg
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+
+          Text {
+            width: parent.width
+            text: "OpenRouter logo © OpenRouter, used to identify the service. This plugin is unofficial and not affiliated with OpenRouter."
+            color: Color.muted
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WrapAnywhere
+          }
+
+          Row {
+            spacing: Style.space(8)
+
+            Button {
+              text: "GitHub repository"
+              onClicked: Quickshell.execDetached(["xdg-open", root.repoUrl])
+            }
+
+            Button {
+              text: root.starPromptDone ? "Starred ♥" : "Star this project"
+              enabled: !root.starPromptDone
+              onClicked: root.dismissStarPrompt(true)
+            }
+          }
+        }
       }
 
       // ---------- loading
       Text {
-        visible: root.view === "loading"
+        visible: root.view === "loading" && !root.busy
         width: parent.width
         text: "Loading…"
         color: Color.muted

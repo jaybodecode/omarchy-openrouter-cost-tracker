@@ -94,12 +94,13 @@ def save_config(cfg):
 
 
 def spend_fields():
-    """Spend-counter config as consumed by the panel."""
+    """Spend-counter + one-time-prompt config as consumed by the panel."""
     cfg = config()
     return {
         "spend_show": bool(cfg.get("spend_show", True)),
         "spend_base": cfg.get("spend_base"),
         "spend_base_at": cfg.get("spend_base_at") or 0,
+        "star_prompt_done": bool(cfg.get("star_prompt_done", False)),
     }
 
 
@@ -297,6 +298,13 @@ def cmd_spend_show(flag):
     return {"ok": True, "spend_show": cfg["spend_show"]}
 
 
+def cmd_star_done():
+    cfg = config()
+    cfg["star_prompt_done"] = True
+    save_config(cfg)
+    return {"ok": True, "star_prompt_done": True}
+
+
 def cmd_logout():
     subprocess.run(
         ["secret-tool", "clear", KEYRING_ATTR[0], KEYRING_ATTR[1]],
@@ -373,6 +381,8 @@ def main():
             if len(argv) < 2 or argv[1] not in ("0", "1"):
                 raise UserError("spend-show requires 0 or 1")
             print(json.dumps(cmd_spend_show(argv[1])))
+        elif cmd == "star-done":
+            print(json.dumps(cmd_star_done()))
         elif cmd == "logout":
             print(json.dumps(cmd_logout()))
         else:
