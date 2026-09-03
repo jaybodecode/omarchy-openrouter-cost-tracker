@@ -53,6 +53,17 @@ BarWidget {
   // the helper writes on every fetch.
   readonly property var panel: panelLoader.item
 
+  Loader {
+    id: panelLoader
+    active: true
+    source: Qt.resolvedUrl("Panel.qml")
+    visible: false
+    onLoaded: {
+      root.injectPanel()
+      Qt.callLater(root.injectPanel)
+    }
+  }
+
   // Plugin directory (self-contained: helper scripts ship in the folder).
   readonly property string pluginDir: {
     var u = Qt.resolvedUrl("BarWidget.qml").toString()
