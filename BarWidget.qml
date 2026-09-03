@@ -82,8 +82,11 @@ BarWidget {
     hasVisualContent: true
     horizontalMargin: 8.75 + (root.panel && root.panel.pillLabel !== "" ? (root.logoSize + root.logoGap) / 2 : root.logoSize / 2)
     verticalPadding: 8.75
-    // Multi-line content styled by the bar's own themed tooltip overlay.
-    tooltipText: root.panel ? root.panel.pillTooltip : "OpenRouter"
+    // The content Row sits above the button's internal MouseArea and breaks
+    // its hover tracking, so the built-in tooltip path is unreliable here.
+    // tooltipText stays empty and our hoverArea below drives the bar's own
+    // themed tooltip (same PopupWindow used by stock bar widgets).
+    tooltipText: ""
 
     onPressed: function(b) {
       if (!root.bar) return
@@ -129,6 +132,27 @@ BarWidget {
           ColorAnimation { duration: 160 }
         }
       }
+    }
+
+    // Hover driver for the bar tooltip. The content Row sits above the
+    // button's internal MouseArea and its containsMouse is unreliable with
+    // overlaid children, so hover is tracked here explicitly. NoButton keeps
+    // clicks falling through to the button's own MouseArea.
+    MouseArea {
+      id: hoverArea
+      anchors.fill: parent
+      acceptedButtons: Qt.NoButton
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+
+      readonly property bool tooltipHovered: containsMouse
+
+      onContainsMouseChanged: {
+        if (!root.bar) return
+        if (containsMouse) root.bar.showTooltip(hoverArea, root.panel ? root.panel.pillTooltip : "OpenRouter")
+        else root.bar.hideTooltip(hoverArea)
+      }
+      onExited: if (root.bar) root.bar.hideTooltip(hoverArea)
     }
   }
 }
