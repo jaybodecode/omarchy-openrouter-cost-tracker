@@ -308,7 +308,47 @@ Panel {
   }
 
   Timer { id: agoTimer; interval: 1000; repeat: true; triggeredOnStart: true; onTriggered: root.agoTick++ }
+
+  Timer {
+    id: busyPhraseTimer
+    interval: 2800
+    running: root.busy
+    repeat: true
+    onTriggered: busyPhraseSwap.restart()
+  }
+
+  SequentialAnimation {
+    id: busyPhraseSwap
+    PropertyAnimation {
+      target: busyPhraseText; property: "opacity"
+      to: 0.0; duration: 180; easing.type: Easing.OutQuad
+    }
+    ScriptAction {
+      script: root.busyPhraseIndex = (root.busyPhraseIndex + 1) % root.busyPhrases.length
+    }
+    PropertyAnimation {
+      target: busyPhraseText; property: "opacity"
+      to: 1.0; duration: 260; easing.type: Easing.InQuad
+    }
+  }
   property int agoTick: 0
+
+  // Rotating vibe-coding phrases while busy — same mechanism as the
+  // network panel's "Handling packets" hero meta (fade out, swap, in).
+  property int busyPhraseIndex: 0
+  readonly property var busyPhrases: [
+    "Counting tokens",
+    "Pricing prompts",
+    "Weighing context",
+    "Feeding the model",
+    "Burning credits",
+    "Rounding up receipts",
+    "Negotiating with vendors",
+    "Sipping context windows",
+    "Auditing inference",
+    "Trimming hallucinations",
+  ]
+  readonly property string busyPhrase: busyPhrases[busyPhraseIndex % busyPhrases.length].toUpperCase()
 
   Timer {
     interval: 1500
@@ -550,46 +590,6 @@ Panel {
         color: Color.muted
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
-      }
-
-      // Rotating vibe-coding phrases while busy — same mechanism as the
-      // network panel's "Handling packets" hero meta (fade out, swap, in).
-      property int busyPhraseIndex: 0
-      readonly property var busyPhrases: [
-        "Counting tokens",
-        "Pricing prompts",
-        "Weighing context",
-        "Feeding the model",
-        "Burning credits",
-        "Rounding up receipts",
-        "Negotiating with vendors",
-        "Sipping context windows",
-        "Auditing inference",
-        "Trimming hallucinations",
-      ]
-      readonly property string busyPhrase: busyPhrases[busyPhraseIndex % busyPhrases.length].toUpperCase()
-
-      Timer {
-        id: busyPhraseTimer
-        interval: 2800
-        running: root.busy
-        repeat: true
-        onTriggered: busyPhraseSwap.restart()
-      }
-
-      SequentialAnimation {
-        id: busyPhraseSwap
-        PropertyAnimation {
-          target: busyPhraseText; property: "opacity"
-          to: 0.0; duration: 180; easing.type: Easing.OutQuad
-        }
-        ScriptAction {
-          script: root.busyPhraseIndex = (root.busyPhraseIndex + 1) % root.busyPhrases.length
-        }
-        PropertyAnimation {
-          target: busyPhraseText; property: "opacity"
-          to: 1.0; duration: 260; easing.type: Easing.InQuad
-        }
       }
 
       // ---------- SETUP (first run: paste management key)
